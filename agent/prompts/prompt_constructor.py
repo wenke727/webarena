@@ -9,7 +9,8 @@ from browser_env.utils import StateInfo
 from llms import lm_config
 from llms.tokenizers import Tokenizer
 from llms.utils import APIInput
-
+import logging
+logger = logging.getLogger("logger")
 
 class Instruction(TypedDict):
     """Instruction for constructing prompt"""
@@ -258,3 +259,166 @@ class CoTPromptConstructor(PromptConstructor):
             raise ActionParsingError(
                 f'Cannot find the answer phrase "{self.answer_phrase}" in "{response}"'
             )
+
+
+class NewASPromptConstructor(PromptConstructor):
+    """The agent will perform step-by-step reasoning before the answer"""
+    operation = [
+        r"(click)\(\s*[\'\"]([A-Z]{1,3})[\'\"]\s*\)",
+        r"(type_string)\(\s*[\'\"]([A-Z]{1,3})[\'\"]\s*,\s*[\'\"]([\s\S]+)[\'\"]\s*,\s*(True|False)\s*\)",
+        r"(select)\(\s*[\'\"]([A-Z]{1,3})[\'\"]\s*,\s*[\'\"]([\s\S]+)[\'\"]\s*\)",
+        r"(scroll_page)\(\s*[\'\"]up[\'\"]\s*\)",
+        r"(scroll_page)\(\s*[\'\"]down[\'\"]\s*\)",
+        r"(jump_to)\(\s*[\'\"](.+)[\'\"]\s*,\s*(True|False)\s*\)",
+        r"(go)\(\s*[\'\"]backward[\'\"]\s*\)",
+        r"(go)\(\s*[\'\"]forward[\'\"]\s*\)",
+        r"(hover)\(\s*[\'\"]([A-Z]{1,3})[\'\"]\s*\)",
+        r"(finish)\(\s*\)",
+        r"(finish)\(\s*(.+)\s*\)",
+        r"(record)\(\s*[\'\"](.+)[\'\"]\s*\)",
+        r"(switch_tab)\([\d]+\)"
+    ]
+
+    translate = [
+        "click",
+        "type",
+        "select",
+        "scroll [up]",
+        "scroll [down]",
+        "goto",
+        "go_back",
+        "go_forward",
+        "hover",
+        "stop",
+        "stop",
+        "record",
+        "page_focus",
+    ]
+
+    def __init__(
+        self,
+        instruction_path: str | Path,
+        lm_config: lm_config.LMConfig,
+        tokenizer: Tokenizer,
+    ):
+        super().__init__(instruction_path, lm_config, tokenizer)
+        self.answer_phrase = self.instruction["meta_data"]["answer_phrase"]
+        self.state = {}
+
+    def construct(
+        self,
+        trajectory: Trajectory,
+        intent: str,
+        meta_data: dict[str, Any] = {},
+    ) -> APIInput:
+        intro = self.instruction["intro"]
+        examples = self.instruction["examples"]
+        template = self.instruction["template"]
+        keywords = self.instruction["meta_data"]["keywords"]
+        finale = self.instruction["finale"]
+        state_info: StateInfo = trajectory[-1]  # type: ignore[assignment]
+
+        obs = state_info["observation"][self.obs_modality]
+        max_obs_length = self.lm_config.gen_config["max_obs_length"]
+        if max_obs_length:
+            obs = self.tokenizer.decode(self.tokenizer.encode(obs)[:max_obs_length])  # type: ignore[arg-type]
+
+        info = state_info["info"]
+        obs_metadata = info["observation_metadata"]["text"]
+        nodes = obs_metadata["obs_nodes_info"]
+        position_info = obs_metadata["position_info"]
+        html_parser = obs_metadata["html_parser"]
+        tabs_str = obs_metadata["tab_title"]
+        self.nodes = nodes
+
+        page = info["page"]
+        url = self.map_url_to_real(page.url)
+        position_bar = self._get_position_bar(position_info)
+
+        history = meta_data["action_history"]
+        if len(history) == 1:
+            previous_action_str = "None"
+        else:
+            previous_action_str = '\n'.join(history[1:])
+
+        self.state.update({
+            "url": url,
+            "html": obs,
+            "html_parser": html_parser,
+            "segment": "None",
+            "operation": "None",
+        })
+
+        current = template.format(
+            objective=intent,
+            url=url,
+            html=obs,
+            position=position_bar,
+            previous_action=previous_action_str,
+            tabs=tabs_str,
+        )
+
+        assert all([f"{{k}}" not in current for k in keywords])
+
+        # prompt = self.get_lm_api_input(intro, examples, current)
+        prompt = current + finale
+
+        return prompt
+
+    def _extract_action(self, response: str) -> str:
+        # find the first occurence of action
+        # self.state["intention"] = self._extract_intention(response)
+
+        for regex, act in zip(self.operation, self.translate):
+            match = re.search(regex, response)
+            if match:
+                m = match.groups()
+                if isinstance(m, tuple):
+                    exact_act = m[0]
+                    param = m[1:]
+                else:
+                    exact_act = m
+                    param = []
+
+                print(exact_act, param)
+                param = list(param)
+                if act in ['click', 'hover', 'type', 'select']:
+                    if len(param) == 0:
+                        continue
+
+                    for node_id, node in self.nodes.items():
+                        if node['label'] == param[0]:
+                            label = param[0]
+                            hp = self.state["html_parser"]
+                            bid = hp.id_label_converter(label)
+                            segment = hp.get_segment(bid)
+
+                            print('[Label]', label, bid, segment)
+                            self.state["segment"] = segment
+                            #self._extract_segment(self.state["html"], label)
+                            if act not in ['select']:
+                                param[0] = node_id
+                            break
+
+                if len(param) > 0:
+                    if act in ['stop', 'select', 'record']:
+                        param[-1] = param[-1].strip("\'\"")
+                    if act in ['type', 'goto']:
+                        param[-1] = '1' if param[-1] == 'True' else '0'
+
+                command = act
+                for p in param:
+                    command += f" [{p}]"
+
+                print(command)
+                return command
+
+        raise ActionParsingError(
+            f'Cannot find the answer phrase in "{response}"'
+        )
+
+    @staticmethod
+    def _get_position_bar(data):
+        position = data.get("position", 0.0)
+        page_height = data.get("page_height", 1.0)
+        return f"{round(position, 1)} / {round(page_height, 1)}"

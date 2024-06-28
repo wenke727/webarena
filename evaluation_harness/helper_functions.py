@@ -178,9 +178,9 @@ def llm_ua_match(pred: str, reference: str, question: str) -> float:
     messages: list[dict[str, Any]] = []
     # construct the question to ask
     message = ""
-    message += f"task: {question}\n"
-    message += f"actual unachievable reason: {reference}\n"
-    message += f"reported unachievable reason: {pred}\n"
+    message += f"task: {question}\n\n"
+    message += f"actual unachievable reason: {reference}\n\n"
+    message += f"reported unachievable reason: {pred}\n\n"
     message += (
         "The task described above is inherently unachievable due to the reason specified under 'actual unachievable reason'. "
         "An individual previously attempted this task and was unable to complete it. They provided a reason for their failure, "

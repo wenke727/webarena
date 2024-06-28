@@ -2,6 +2,7 @@ import argparse
 import json
 from typing import Any
 
+import logging
 import tiktoken
 from beartype import beartype
 
@@ -23,7 +24,7 @@ from llms import (
     lm_config,
 )
 from llms.tokenizers import Tokenizer
-
+logger = logging.getLogger("logger")
 
 class Agent:
     """Base class for the agent"""

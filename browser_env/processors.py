@@ -27,7 +27,8 @@ from .utils import (
 )
 
 IN_VIEWPORT_RATIO_THRESHOLD = 0.6
-
+import logging
+logger = logging.getLogger("logger")
 
 class ObservationProcessor:
     def process(self, page: Page, client: CDPSession) -> Observation:

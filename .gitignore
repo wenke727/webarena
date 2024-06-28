@@ -1,3 +1,5 @@
+result/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -131,7 +133,6 @@ dmypy.json
 # mac OS
 *.DS_Store
 
-.vscode
 *tmp*
 
 .auth/*

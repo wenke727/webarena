@@ -1,8 +1,10 @@
+from dotenv import load_dotenv
+load_dotenv(".env", verbose=True)
+
 """Script to run end-to-end evaluation on the benchmark"""
 import argparse
 import glob
 import json
-import logging
 import os
 import random
 import subprocess
@@ -34,27 +36,15 @@ from browser_env.helper_functions import (
     get_action_description,
 )
 from evaluation_harness import evaluator_router
+from tqdm import tqdm
+from utils.logger_helper import configure_loguru_integration
 
-LOG_FOLDER = "log_files"
+LOG_FOLDER = "result"
 Path(LOG_FOLDER).mkdir(parents=True, exist_ok=True)
 LOG_FILE_NAME = f"{LOG_FOLDER}/log_{time.strftime('%Y%m%d%H%M%S', time.localtime())}_{random.randint(0, 10000)}.log"
 
-logger = logging.getLogger("logger")
-logger.setLevel(logging.INFO)
-
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
-logger.addHandler(console_handler)
-
-file_handler = logging.FileHandler(LOG_FILE_NAME)
-file_handler.setLevel(logging.DEBUG)
-logger.addHandler(file_handler)
-
-# Set the log format
-formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-console_handler.setFormatter(formatter)
-file_handler.setFormatter(formatter)
-
+logger = configure_loguru_integration(
+    './result', 'webAgent.log', filter_packages=['httpcore', 'httpx', 'urllib3', "PIL"])
 
 def config() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -141,6 +131,7 @@ def config() -> argparse.Namespace:
     # example config
     parser.add_argument("--test_start_idx", type=int, default=0)
     parser.add_argument("--test_end_idx", type=int, default=1000)
+    parser.add_argument("--sample", type=int, default=1)
 
     # logging related
     parser.add_argument("--result_dir", type=str, default="")
@@ -240,8 +231,8 @@ def test(
         sleep_after_execution=args.sleep_after_execution,
     )
 
-    for config_file in config_file_list:
-        try:
+    for config_file in tqdm(config_file_list):
+        # try:
             render_helper = RenderHelper(
                 config_file, args.result_dir, args.action_set_tag
             )
@@ -284,14 +275,17 @@ def test(
             trajectory.append(state_info)
 
             meta_data = {"action_history": ["None"]}
+
             while True:
                 early_stop_flag, stop_info = early_stop(
                     trajectory, max_steps, early_stop_thresholds
                 )
 
                 if early_stop_flag:
-                    action = create_stop_action(f"Early stop: {stop_info}")
+                    action = create_stop_action(f"Early stop: {stop_info}") # FIXME
                 else:
+                    prompt = agent.prompt_constructor.construct(trajectory, intent, meta_data)
+
                     try:
                         action = agent.next_action(
                             trajectory, intent, meta_data=meta_data
@@ -300,6 +294,7 @@ def test(
                         # get the error message
                         action = create_stop_action(f"ERROR: {str(e)}")
 
+                logger.warning(f"action: {action}")
                 trajectory.append(action)
 
                 action_str = get_action_description(
@@ -314,6 +309,11 @@ def test(
                     action, state_info, meta_data, args.render_screenshot
                 )
                 meta_data["action_history"].append(action_str)
+
+                # trace.append({
+                #     "source": prompt,
+                #     "target": action_str.split(' #HTML Segment')[0],
+                # })
 
                 if action["action_type"] == ActionTypes.STOP:
                     break
@@ -347,22 +347,23 @@ def test(
                     Path(args.result_dir) / "traces" / f"{task_id}.zip"
                 )
 
-        except openai.error.OpenAIError as e:
-            logger.info(f"[OpenAI Error] {repr(e)}")
-        except Exception as e:
-            logger.info(f"[Unhandled Error] {repr(e)}]")
-            import traceback
+        # except openai.OpenAIError as e:
+        #     logger.info(f"[OpenAI Error] {repr(e)}")
+        # except Exception as e:
+        #     logger.info(f"[Unhandled Error] {repr(e)}]")
+        #     import traceback
 
-            # write to error file
-            with open(Path(args.result_dir) / "error.txt", "a") as f:
-                f.write(f"[Config file]: {config_file}\n")
-                f.write(f"[Unhandled Error] {repr(e)}\n")
-                f.write(traceback.format_exc())  # write stack trace to file
+        #     # write to error file
+        #     with open(Path(args.result_dir) / "error.txt", "a") as f:
+        #         f.write(f"[Config file]: {config_file}\n")
+        #         f.write(f"[Unhandled Error] {repr(e)}\n")
+        #         f.write(traceback.format_exc())  # write stack trace to file
 
-        render_helper.close()
+        # render_helper.close()
 
     env.close()
-    logger.info(f"Average score: {sum(scores) / len(scores)}")
+    if len(scores):
+        logger.info(f"Average score: {sum(scores) / len(scores)}")
 
 
 def prepare(args: argparse.Namespace) -> None:
@@ -402,7 +403,6 @@ def get_unfinished(config_files: list[str], result_dir: str) -> list[str]:
             unfinished_configs.append(config_file)
     return unfinished_configs
 
-
 def dump_config(args: argparse.Namespace) -> None:
     config_file = Path(args.result_dir) / "config.json"
     if not config_file.exists():
@@ -427,8 +427,8 @@ if __name__ == "__main__":
     if len(test_file_list) == 0:
         logger.info("No task left to run")
     else:
-        print(f"Total {len(test_file_list)} tasks left")
-        args.render = False
+        logger.debug(f"Total {len(test_file_list)} tasks left")
+        args.render = True
         args.render_screenshot = True
         args.save_trace_enabled = True
 
