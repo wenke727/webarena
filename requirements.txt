@@ -11,3 +11,6 @@ flask
 nltk
 text-generation
 transformers==4.33.2
+lxml==5.1.0
+torch
+sentencepiece==0.2.0

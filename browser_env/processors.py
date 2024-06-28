@@ -1,8 +1,9 @@
 import json
+import lxml
 import re
 from collections import defaultdict
 from typing import Any, TypedDict, Union
-
+import logging
 import numpy as np
 import numpy.typing as npt
 from gymnasium import spaces
@@ -26,9 +27,11 @@ from .utils import (
     png_bytes_to_numpy,
 )
 
+from .html_tools import HtmlParser, basic_attrs, print_html_object
+
 IN_VIEWPORT_RATIO_THRESHOLD = 0.6
-import logging
 logger = logging.getLogger("logger")
+logger.setLevel(logging.INFO)
 
 class ObservationProcessor:
     def process(self, page: Page, client: CDPSession) -> Observation:
@@ -104,7 +107,8 @@ class TextObervationProcessor(ObservationProcessor):
 
         # assert len(tree['documents']) == 1, "More than one document in the DOM tree"
         info: BrowserInfo = {"DOMTree": tree, "config": config}
-
+        # with open('output/browser_info.json', 'w') as f:
+        #     f.write(json.dumps(tree, ensure_ascii=False))
         return info
 
     @staticmethod
@@ -181,13 +185,20 @@ class TextObervationProcessor(ObservationProcessor):
     ) -> DOMTree:
         # adopted from [natbot](https://github.com/nat/natbot)
         tree = info["DOMTree"]
+        config = info["config"]
         strings = tree["strings"]
         document = tree["documents"][0]
         nodes = document["nodes"]
+        layout = document["layout"]
 
+        # print(len(nodes["nodeName"]), len(layout["nodeIndex"]), len(layout["bounds"]))
+
+        import time
+        stt = time.time()
         # make a dom tree that is easier to navigate
         dom_tree: DOMTree = []
         graph = defaultdict(list)
+        print(nodes.keys())
         for node_idx in range(len(nodes["nodeName"])):
             cur_node: DOMNode = {
                 "nodeId": "",
@@ -221,8 +232,13 @@ class TextObervationProcessor(ObservationProcessor):
             for i in range(0, len(node_attributes), 2):
                 a = node_attributes[i]
                 b = node_attributes[i + 1]
-                b = " ".join(b.split())
+                # b = " ".join(b.split())
+                import re
+                b = re.sub(r"{\s*opacity:\s*.*;*\s*}", " ", b)
+                b = [b_item for b_item in b.split() if b_item.count('vimium') == 0]
+                b = " ".join(b)
                 node_attributes_str += f'{a}="{b}" '
+
             node_attributes_str = node_attributes_str.strip()
 
             cur_node["nodeId"] = str(node_idx)
@@ -240,24 +256,42 @@ class TextObervationProcessor(ObservationProcessor):
             if cur_node["parentId"] == "-1":
                 cur_node["union_bound"] = [0.0, 0.0, 10.0, 10.0]
             else:
-                response = self.get_bounding_client_rect(
-                    client, cur_node["backendNodeId"]
-                )
-                if response.get("result", {}).get("subtype", "") == "error":
-                    cur_node["union_bound"] = None
-                else:
-                    x = response["result"]["value"]["x"]
-                    y = response["result"]["value"]["y"]
-                    width = response["result"]["value"]["width"]
-                    height = response["result"]["value"]["height"]
-                    cur_node["union_bound"] = [x, y, width, height]
+                # method 1
+                # response = self.get_bounding_client_rect(
+                #     client, cur_node["backendNodeId"]
+                # )
+
+                # if response.get("result", {}).get("subtype", "") == "error":
+                #     cur_node["union_bound"] = None
+                # else:
+                #     x = response["result"]["value"]["x"]
+                #     y = response["result"]["value"]["y"]
+                #     width = response["result"]["value"]["width"]
+                #     height = response["result"]["value"]["height"]
+                #     cur_node["union_bound"] = [x, y, width, height]
+
+                # method 2
+                bound = [0.0, 0.0, 0.0, 0.0]
+                if node_idx in layout["nodeIndex"]:
+                    bound = layout["bounds"][layout["nodeIndex"].index(node_idx)]
+                    bound[0] -= config["win_left_bound"]
+                    bound[1] -= config["win_top_bound"]
+
+                cur_node["union_bound"] = bound
 
             dom_tree.append(cur_node)
+        print('[build]', time.time() - stt)
 
+        stt = time.time()
         # add parent children index to the node
         for parent_id, child_ids in graph.items():
             dom_tree[int(parent_id)]["childIds"] = child_ids
+        print('[graph]', time.time() - stt)
 
+        # with open('output/dom_tree.json', 'w') as f:
+        #     f.write(json.dumps(dom_tree, ensure_ascii=False))
+
+        stt = time.time()
         # remove the nodes that are not in the current viewport
         if current_viewport_only:
 
@@ -296,7 +330,9 @@ class TextObervationProcessor(ObservationProcessor):
 
                 # invisible node
                 if width == 0.0 or height == 0.0:
-                    remove_node_in_graph(node)
+                    parent_id = node["parentId"]
+                    if node["nodeName"] not in ['OPTION'] or dom_tree[int(parent_id)]["nodeName"] not in ["SELECT"]:
+                        remove_node_in_graph(node)
                     continue
 
                 in_viewport_ratio = self.get_element_in_viewport_ratio(
@@ -316,7 +352,91 @@ class TextObervationProcessor(ObservationProcessor):
                 if node.get("parentId", "-1") != "[REMOVED]"
             ]
 
+        print('[filter]', time.time() - stt)
         return dom_tree
+
+    @staticmethod
+    def parse_my_html(dom_tree: DOMTree) -> tuple[str, str, dict[str, Any], Any]:
+        """Parse the html tree into a string text"""
+
+        obs_nodes_info = {}
+        nodeid_to_cursor = {
+            node["nodeId"]: idx for idx, node in enumerate(dom_tree)
+        }
+
+        def dfs(node_cursor: int, depth: int) -> tuple[str, list[str]]:
+            tree_str, labeled_elems = '', []
+            node = dom_tree[node_cursor]
+            valid_node = True
+            pure_text = False
+            try:
+                if node['nodeName'] == '#text':
+                    node['nodeName'] = 'text'
+
+                node_str = f"<{node['nodeName']}"
+                if node["attributes"]:
+                    node_str += f" {node['attributes']}"
+                node_str += f" backend-id=\"bid-{node['backendNodeId']}\"> {node['nodeValue']}"
+
+                # if node['nodeName'] == '#text':
+                #     pure_text = True
+                #     node_str = node['nodeValue']
+
+                valid_node = bool(node["attributes"] or node["nodeValue"] or pure_text)
+
+                if valid_node:
+                    node_html = lxml.html.fromstring(node_str)
+                    label = node_html.attrib.get('data-testid', '')
+                    if len(label) > 0:
+                        labeled_elems.append(node["backendNodeId"])
+                    obs_nodes_info[str(node_cursor)] = {
+                        "backend_id": node["backendNodeId"],
+                        "union_bound": node["union_bound"],
+                        "text": node['nodeValue'],
+                        "label": label,
+                    }
+                    tree_str += f"{node_str}"
+
+            except Exception as e:
+                valid_node = False
+
+            for child_ids in node["childIds"]:
+                child_cursor = nodeid_to_cursor[child_ids]
+                child_depth = depth + 1 if valid_node else depth
+                child_str, elems = dfs(child_cursor, child_depth)
+                tree_str += child_str
+                labeled_elems.extend(elems)
+
+            if valid_node and not pure_text:
+                tree_str += f"</{node['nodeName']}>"
+
+            return tree_str, labeled_elems
+
+        html, labeled_elems = dfs(0, 0)
+
+        # with open('output/raw.html', 'w') as f:
+        #     f.write(html)
+        print(labeled_elems)
+
+        args = {
+            'use_position': False,
+            'id_attr': 'backend-id',
+            'label_generator': 'order',
+            'label_attr': 'data-testid',
+            'attr_list': basic_attrs,
+            'prompt': 'refine',
+        }
+
+        hp = HtmlParser(html, args)
+        packet = hp.parse_tree()
+        page_html = packet['html']
+
+        # logging.debug(f"page html:\n{print_html_object(page_html)}")
+
+        it, pt = packet.get('init_time', 0), packet.get('parse_time', 0)
+        print(f'[Time] {it:.3f} {pt:.3f}')
+
+        return html, page_html, obs_nodes_info, hp
 
     @staticmethod
     def parse_html(dom_tree: DOMTree) -> tuple[str, dict[str, Any]]:
@@ -563,15 +683,14 @@ class TextObervationProcessor(ObservationProcessor):
         """further clean accesibility tree"""
         clean_lines: list[str] = []
         for line in tree_str.split("\n"):
-            # remove statictext if the content already appears in the previous line
             if "statictext" in line.lower():
                 prev_lines = clean_lines[-3:]
-                pattern = r"\[\d+\] StaticText (.+)"
+                pattern = r"\[\d+\] StaticText '([^']+)'"
 
-                match = re.search(pattern, line, re.DOTALL)
+                match = re.search(pattern, line)
                 if match:
-                    static_text = match.group(1)[1:-1]  # remove the quotes
-                    if static_text and all(
+                    static_text = match.group(1)
+                    if all(
                         static_text not in prev_line
                         for prev_line in prev_lines
                     ):
@@ -581,9 +700,25 @@ class TextObervationProcessor(ObservationProcessor):
 
         return "\n".join(clean_lines)
 
-    def process(self, page: Page, client: CDPSession) -> str:
+    def process(self, page: Page, client: CDPSession, context: str) -> str:
         # get the tab info
         open_tabs = page.context.pages
+        # try:
+        #     tab_titles = [tab.title() for tab in open_tabs]
+        #     current_tab_idx = open_tabs.index(page)
+        #     for idx in range(len(open_tabs)):
+        #         if idx == current_tab_idx:
+        #             tab_titles[
+        #                 idx
+        #             ] = f"Tab {idx} (current): {open_tabs[idx].title()}"
+        #         else:
+        #             tab_titles[idx] = f"Tab {idx}: {open_tabs[idx].title()}"
+        #     tab_title_str = " | ".join(tab_titles)
+        # except Exception:
+        #     tab_title_str = " | ".join(
+        #         ["Tab {idx}" for idx in range(len(open_tabs))]
+        #     )
+
         try:
             tab_titles = [tab.title() for tab in open_tabs]
             current_tab_idx = open_tabs.index(page)
@@ -591,14 +726,15 @@ class TextObervationProcessor(ObservationProcessor):
                 if idx == current_tab_idx:
                     tab_titles[
                         idx
-                    ] = f"Tab {idx} (current): {open_tabs[idx].title()}"
+                    ] = f"{idx+1}. {open_tabs[idx].title()} <-- current tab"
                 else:
-                    tab_titles[idx] = f"Tab {idx}: {open_tabs[idx].title()}"
-            tab_title_str = " | ".join(tab_titles)
+                    tab_titles[idx] = f"{idx+1}. {open_tabs[idx].title()}"
+            tab_title_str = "\n".join(tab_titles)
         except Exception:
-            tab_title_str = " | ".join(
-                ["Tab {idx}" for idx in range(len(open_tabs))]
+            tab_title_str = "\n".join(
+                [f"{idx+1}. Default" for idx in range(len(open_tabs))]
             )
+
 
         try:
             browser_info = self.fetch_browser_info(page, client)
@@ -607,15 +743,37 @@ class TextObervationProcessor(ObservationProcessor):
             browser_info = self.fetch_browser_info(page, client)
 
         if self.observation_type == "html":
+            import time
+            stt = time.time()
             dom_tree = self.fetch_page_html(
                 browser_info,
                 page,
                 client,
                 current_viewport_only=self.current_viewport_only,
             )
-            content, obs_nodes_info = self.parse_html(dom_tree)
+
+            print('[fetch]', time.time() - stt)
+
+            stt = time.time()
+            raw_html, content, obs_nodes_info, hp = self.parse_my_html(dom_tree)
+            print('[parse]', time.time() - stt)
+
+            window_height = page.evaluate("window.innerHeight")
+            page_height = page.evaluate('document.documentElement.scrollHeight') / window_height
+            position = page.evaluate("window.scrollY") / window_height
+
             self.obs_nodes_info = obs_nodes_info
             self.meta_data["obs_nodes_info"] = obs_nodes_info
+            self.meta_data["position_info"] = {
+                "page_height": page_height,
+                "position": position,
+            }
+            self.meta_data["dom_info"] = {
+                "raw_html": raw_html,
+                "dom_tree": dom_tree,
+            }
+            self.meta_data["html_parser"] = hp
+            self.meta_data["tab_title"] = tab_title_str
 
         elif self.observation_type == "accessibility_tree":
             accessibility_tree = self.fetch_page_accessibility_tree(
@@ -636,7 +794,7 @@ class TextObervationProcessor(ObservationProcessor):
             )
 
         self.browser_config = browser_info["config"]
-        content = f"{tab_title_str}\n\n{content}"
+        # content = f"{tab_title_str}\n\n{content}"
         return content
 
     def get_element_center(self, element_id: str) -> tuple[float, float]:
@@ -657,7 +815,7 @@ class ImageObservationProcessor(ObservationProcessor):
         self.observation_tag = "image"
         self.meta_data = create_empty_metadata()
 
-    def process(self, page: Page, client: CDPSession) -> npt.NDArray[np.uint8]:
+    def process(self, page: Page, client: CDPSession, context: str) -> npt.NDArray[np.uint8]:
         try:
             screenshot = png_bytes_to_numpy(page.screenshot())
         except:
@@ -710,10 +868,10 @@ class ObservationHandler:
         return spaces.Dict({"text": text_space, "image": image_space})
 
     def get_observation(
-        self, page: Page, client: CDPSession
+        self, page: Page, client: CDPSession, context: str = '',
     ) -> dict[str, Observation]:
-        text_obs = self.text_processor.process(page, client)
-        image_obs = self.image_processor.process(page, client)
+        text_obs = self.text_processor.process(page, client, context)
+        image_obs = self.image_processor.process(page, client, context)
         return {"text": text_obs, "image": image_obs}
 
     def get_observation_metadata(self) -> dict[str, ObservationMetadata]:

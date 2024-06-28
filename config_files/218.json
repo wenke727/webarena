@@ -5,7 +5,7 @@
   "task_id": 218,
   "require_login": true,
   "storage_state": null,
-  "start_url": "https://www.google.com/maps",
+  "start_url": "https://www.google.com/maps/@22.38131,114.168639,11z?entry=ttu",
   "geolocation": null,
   "intent_template": "Show me the walking distance from nearby hotels to {{location}} that take at most {{n}} minutes?",
   "instantiation_dict": {

@@ -153,6 +153,94 @@ def action2str(
                 raise ValueError(
                     f"Unknown action type {action['action_type']}"
                 )
+    elif action_set_tag == "id_html_tree":
+        element_id = action["element_id"]
+        label = action.get("label", "")
+        match action["action_type"]:
+            case ActionTypes.CLICK:
+                # [ID=X] xxxxx
+                action_str = f"#Click# {label}"
+            case ActionTypes.TYPE:
+                text = "".join([_id2key[i] for i in action["text"]])
+                text = text.replace("\n", " ")
+                action_str = f"#Type# {label} {text}"
+            case ActionTypes.HOVER:
+                action_str = f"#Hover# {label}"
+            case ActionTypes.SCROLL:
+                action_str = f"#Scroll_{action['direction']}#"
+            case ActionTypes.KEY_PRESS:
+                action_str = f"#Press# {action['key_comb']}"
+            case ActionTypes.GOTO_URL:
+                action_str = f"#Goto# {action['url']}"
+            case ActionTypes.NEW_TAB:
+                action_str = "new_tab"
+            case ActionTypes.PAGE_CLOSE:
+                action_str = "close_tab"
+            case ActionTypes.GO_BACK:
+                action_str = "#Go_backward#"
+            case ActionTypes.GO_FORWARD:
+                action_str = "#Go_forward#"
+            case ActionTypes.PAGE_FOCUS:
+                action_str = f"page_focus [{action['page_number']}]"
+            case ActionTypes.STOP:
+                if len(action['answer']) > 0:
+                    action_str = f"#Answer# {action['answer']}"
+                else:
+                    action_str = f"#Exit#"
+            case ActionTypes.SELECT_OPTION:
+                option = action.get("option", "")
+                action_str = f"#Select# {label} {option}"
+            case ActionTypes.NONE:
+                action_str = "None"
+            case _:
+                raise ValueError(
+                    f"Unknown action type {action['action_type']}"
+                )
+    elif action_set_tag == "id_html_nasc_tree":
+        element_id = action["element_id"]
+        label = action["label"]
+        flag = action["flag"]
+        
+        match action["action_type"]:
+            case ActionTypes.CLICK:
+                # [ID=X] xxxxx
+                action_str = f"click('{label}')"
+            case ActionTypes.TYPE:
+                text = "".join([_id2key[i] for i in action["text"]])
+                text = text.replace("\n", " ")
+                action_str = f"type_string('{label}', '{text}', {flag})"
+            case ActionTypes.HOVER:
+                action_str = f"hover('{label}')"
+            case ActionTypes.SCROLL:
+                action_str = f"scroll_page('{action['direction']}')"
+            case ActionTypes.KEY_PRESS:
+                action_str = f"press('{action['key_comb']}')"
+            case ActionTypes.GOTO_URL:
+                action_str = f"jump_to('{action['url']}', {flag})"
+            case ActionTypes.NEW_TAB:
+                action_str = "new_tab"
+            case ActionTypes.PAGE_CLOSE:
+                action_str = "close_tab"
+            case ActionTypes.GO_BACK:
+                action_str = "go('backward')"
+            case ActionTypes.GO_FORWARD:
+                action_str = "go('forward')"
+            case ActionTypes.PAGE_FOCUS:
+                action_str = f"switch_tab('{action['page_number']}')"
+            case ActionTypes.STOP:
+                if len(action['answer']) > 0:
+                    action_str = f"finish('{action['answer']}')"
+                else:
+                    action_str = f"finish()"
+            case ActionTypes.SELECT_OPTION:
+                option = action.get("option", "")
+                action_str = f"select('{label}', '{option}')"
+            case ActionTypes.NONE:
+                action_str = "no_op()"
+            case _:
+                raise ValueError(
+                    f"Unknown action type {action['action_type']}"
+                )
     else:
         raise NotImplementedError(f"Unknown action set tag {action_set_tag}")
 
@@ -442,11 +530,13 @@ def create_none_action() -> Action:
         "direction": "",
         "answer": "",
         "raw_prediction": "",
+        "label": "",
+        "flag": False,
     }
 
 
 @beartype
-def create_stop_action(answer: str) -> Action:
+def create_stop_action(answer: str="") -> Action:
     action = create_none_action()
     action.update({"action_type": ActionTypes.STOP, "answer": answer})
     return action
@@ -565,6 +655,18 @@ def create_goto_url_action(url: str) -> Action:
     )
     return action
 
+@beartype
+def create_our_goto_url_action(url: str, flag: bool) -> Action:
+    """Return a valid action object with type GOTO_URL."""
+    action = create_none_action()
+    action.update(
+        {
+            "action_type": ActionTypes.GOTO_URL,
+            "flag": flag,
+            "url": url,
+        }
+    )
+    return action
 
 @beartype
 def create_page_close_action() -> Action:
@@ -682,6 +784,31 @@ def create_type_action(
     )
     return action
 
+@beartype
+def create_our_type_action(
+    text: str,
+    element_id: str = "",
+    element_role: RolesType = "link",
+    element_name: str = "",
+    pw_code: str = "",
+    nth: int = 0,
+    flag: bool = True,
+) -> Action:
+    action = create_none_action()
+    action.update(
+        {
+            "action_type": ActionTypes.TYPE,
+            "element_id": element_id,
+            "element_role": _role2id[element_role],
+            "element_name": element_name,
+            "nth": nth,
+            "text": _keys2ids(text),
+            "pw_code": pw_code,
+            "flag": flag,
+        }
+    )
+    return action
+
 
 @beartype
 def create_check_action(pw_code: str) -> Action:
@@ -694,6 +821,16 @@ def create_check_action(pw_code: str) -> Action:
     )
     return action
 
+@beartype
+def create_record_action(text: str) -> Action:
+    action = create_none_action()
+    action.update(
+        {
+            "action_type": ActionTypes.NONE,
+            "answer": f"#Record# {text}",
+        }
+    )
+    return action
 
 def create_select_option_action(
     pw_code: str,
@@ -707,6 +844,21 @@ def create_select_option_action(
     )
     return action
 
+def create_our_select_option_action(
+    pw_code: str,
+    label: str,
+    text: str,
+) -> Action:
+    action = create_none_action()
+    action.update(
+        {
+            "action_type": ActionTypes.SELECT_OPTION,
+            "pw_code": pw_code,
+            "label": label,
+            "option": text,
+        }
+    )
+    return action
 
 @beartype
 def create_focus_action(
@@ -775,11 +927,11 @@ def execute_scroll(direction: str, page: Page) -> None:
     # code from natbot
     if direction == "up":
         page.evaluate(
-            "(document.scrollingElement || document.body).scrollTop = (document.scrollingElement || document.body).scrollTop - window.innerHeight;"
+            "(document.scrollingElement || document.body).scrollTop = (document.scrollingElement || document.body).scrollTop - window.innerHeight * 0.8;"
         )
     elif direction == "down":
         page.evaluate(
-            "(document.scrollingElement || document.body).scrollTop = (document.scrollingElement || document.body).scrollTop + window.innerHeight;"
+            "(document.scrollingElement || document.body).scrollTop = (document.scrollingElement || document.body).scrollTop + window.innerHeight * 0.8;"
         )
 
 
@@ -1165,6 +1317,8 @@ def execute_action(
                 element_id = action["element_id"]
                 element_center = obseration_processor.get_element_center(element_id)  # type: ignore[attr-defined]
                 execute_mouse_click(element_center[0], element_center[1], page)
+                page.keyboard.press("Control+A")
+                page.keyboard.press("Delete")
                 execute_type(action["text"], page)
             elif action["element_role"] and action["element_name"]:
                 element_role = int(action["element_role"])
@@ -1196,6 +1350,9 @@ def execute_action(
         case ActionTypes.GO_FORWARD:
             page.go_forward()
         case ActionTypes.GOTO_URL:
+            if action["answer"] == "1":
+                page = browser_ctx.new_page()
+                page.client = page.context.new_cdp_session(page) 
             page.goto(action["url"])
         case ActionTypes.PAGE_CLOSE:
             page.close()
@@ -1208,7 +1365,8 @@ def execute_action(
             if action["pw_code"]:
                 parsed_code = parse_playwright_code(action["pw_code"])
                 locator_code = parsed_code[:-1]
-                execute_playwright_select_option(locator_code, page)
+                pw_action_args = parsed_code[-1].get('arguments', [])
+                execute_playwright_select_option(locator_code, page, pw_action_args)
             else:
                 raise NotImplementedError(
                     "No proper locator found for select option action"
@@ -1535,9 +1693,10 @@ def create_id_based_action(action_str: str) -> Action:
                 match.group(2),
                 match.group(3),
             )
-            if enter_flag == "1":
+            enter_flag = True if enter_flag == "1" else False
+            if enter_flag:
                 text += "\n"
-            return create_type_action(text=text, element_id=element_id)
+            return create_our_type_action(text=text, element_id=element_id, flag=enter_flag)
         case "press":
             match = re.search(r"press ?\[(.+)\]", action_str)
             if not match:
@@ -1552,11 +1711,15 @@ def create_id_based_action(action_str: str) -> Action:
             direction = match.group(1)
             return create_scroll_action(direction=direction)
         case "goto":
-            match = re.search(r"goto ?\[(.+)\]", action_str)
+            match = re.search(r"goto ?\[(.+)\] \[(\d+)\]", action_str)
             if not match:
                 raise ActionParsingError(f"Invalid goto action {action_str}")
-            url = match.group(1)
-            return create_goto_url_action(url=url)
+            url, new_tab_flag = (
+                match.group(1),
+                match.group(2),
+            )
+            new_tab_flag = True if new_tab_flag == "1" else False
+            return create_our_goto_url_action(url=url, flag=new_tab_flag)
         case "new_tab":
             return create_new_tab_action()
         case "go_back":
@@ -1580,5 +1743,17 @@ def create_id_based_action(action_str: str) -> Action:
             else:
                 answer = match.group(1)
             return create_stop_action(answer)
+        case "select":
+            match = re.search(r"select ?\[(.+)\] ?\[(.+)\]", action_str)
+            if not match:
+                raise ActionParsingError(f"Invalid select action {action_str}")
+            elem = match.group(1)
+            option = match.group(2)
+            pw_code = f'page.get_by_test_id("{elem}").select_option("{option}")'
+            return create_our_select_option_action(pw_code, elem, option)
+        case "record":
+            match = re.search(r"record ?\[(.+)\]", action_str)
+            text = match.group(1)
+            return create_record_action(text)
 
     raise ActionParsingError(f"Invalid action {action_str}")

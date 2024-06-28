@@ -41,6 +41,32 @@ def get_render_action(
 ) -> str:
     """Parse the predicted actions for rendering purpose. More comprehensive information"""
     match action_set_tag:
+        case "id_html_tree":
+            text_meta_data = observation_metadata["text"]
+            if action["element_id"] in text_meta_data["obs_nodes_info"]:
+                node_content = text_meta_data["obs_nodes_info"][
+                    action["element_id"]
+                ]["text"]
+            else:
+                node_content = "No match found"
+
+            action_str = f"<div class='raw_parsed_prediction' style='background-color:grey'><pre>{action['raw_prediction']}</pre></div>"
+            action_str += f"<div class='action_object' style='background-color:grey'><pre>{repr(action)}</pre></div>"
+            action_str += f"<div class='parsed_action' style='background-color:yellow'><pre>{action2str(action, action_set_tag, node_content)}</pre></div>"
+
+        case "id_html_nasc_tree":
+            text_meta_data = observation_metadata["text"]
+            if action["element_id"] in text_meta_data["obs_nodes_info"]:
+                node_content = text_meta_data["obs_nodes_info"][
+                    action["element_id"]
+                ]["text"]
+            else:
+                node_content = "No match found"
+
+            action_str = f"<div class='raw_parsed_prediction' style='background-color:grey'><pre>{action['raw_prediction']}</pre></div>"
+            action_str += f"<div class='action_object' style='background-color:grey'><pre>{repr(action)}</pre></div>"
+            action_str += f"<div class='parsed_action' style='background-color:yellow'><pre>{action2str(action, action_set_tag, node_content)}</pre></div>"
+
         case "id_accessibility_tree":
             text_meta_data = observation_metadata["text"]
             if action["element_id"] in text_meta_data["obs_nodes_info"]:
@@ -69,8 +95,98 @@ def get_action_description(
 ) -> str:
     """Generate the text version of the predicted actions to store in action history for prompt use.
     May contain hint information to recover from the failures"""
-
+    
     match action_set_tag:
+        case "id_html_tree":
+            # old_op_prompt = "Website: %s; Thinking process: %s; Html segment: %s; Operation: %s; Result: %s"
+            op_prompt = "Html segment: %s; Operation: %s;"
+            text_meta_data = observation_metadata["text"]
+            node_info = text_meta_data["obs_nodes_info"]
+            result = 'Operation Success'
+            
+            if action["action_type"] in [
+                ActionTypes.CLICK,
+                ActionTypes.HOVER,
+                ActionTypes.TYPE,
+            ]:
+                action_name = str(action["action_type"]).split(".")[1].lower()
+                if action["element_id"] in node_info:
+                    node_content = node_info[action["element_id"]]["text"]
+                    node_content = " ".join(node_content.split()[1:])
+                    action["label"] = node_info[action["element_id"]]["label"]
+                    action_str = action2str(
+                        action, action_set_tag, node_content
+                    )
+                else:
+                    action_str = "None"
+                    result = f"Cannot find the corresponding tag. Attempt to perfom \"{action_name}\" on element \"[{action['element_id']}]\" but no matching element found. Please check the observation more carefully."
+            else:
+                if (
+                    action["action_type"] == ActionTypes.NONE
+                    and prompt_constructor is not None
+                ):
+                    text = action["answer"]
+                    if text is not None and text.count("#Record#") > 0:
+                        action_str = text
+                    else:
+                        action_str = "None"
+                        result = f'Operation invalid. The format was incorrect. Ensure that the action is wrapped inside a pair of # and seperate arguments within spaces as follows: #action# arg1 arg2 ....'
+                else:
+                    action_str = action2str(action, action_set_tag, "")
+                    
+            # action_str = op_prompt % (
+            #     prompt_constructor.state["url"],
+            #     prompt_constructor.state["intention"],
+            #     prompt_constructor.state["segment"],
+            #     action_str,
+            #     result,
+            # )
+            
+            action_str = op_prompt % (
+                prompt_constructor.state["segment"],
+                action_str,
+            )
+        case "id_html_nasc_tree":
+            op_prompt = "%s #HTML Segment: %s"
+            text_meta_data = observation_metadata["text"]
+            node_info = text_meta_data["obs_nodes_info"]
+            result = 'Operation Success'
+            
+            if action["action_type"] in [
+                ActionTypes.CLICK,
+                ActionTypes.HOVER,
+                ActionTypes.TYPE,
+            ]:
+                action_name = str(action["action_type"]).split(".")[1].lower()
+                if action["element_id"] in node_info:
+                    node_content = node_info[action["element_id"]]["text"]
+                    node_content = " ".join(node_content.split()[1:])
+                    action["label"] = node_info[action["element_id"]]["label"]
+                    action_str = action2str(
+                        action, action_set_tag, node_content
+                    )
+                else:
+                    action_str = "None"
+                    result = f"Cannot find the corresponding tag. Attempt to perfom \"{action_name}\" on element \"[{action['element_id']}]\" but no matching element found. Please check the observation more carefully."
+            else:
+                if (
+                    action["action_type"] == ActionTypes.NONE
+                    and prompt_constructor is not None
+                ):
+                    text = action["answer"]
+                    if text is not None and text.count("record") > 0:
+                        action_str = text
+                    else:
+                        action_str = "None"
+                        result = f'Operation invalid. The format was incorrect. Ensure that the action is wrapped inside a pair of # and seperate arguments within spaces as follows: #action# arg1 arg2 ....'
+                else:
+                    action_str = action2str(action, action_set_tag, "")
+                    
+            action_str = op_prompt % (
+                action_str,
+                prompt_constructor.state["segment"],
+            )
+            
         case "id_accessibility_tree":
             text_meta_data = observation_metadata["text"]
             if action["action_type"] in [
@@ -154,7 +270,7 @@ class RenderHelper(object):
         if render_screenshot:
             # image observation
             img_obs = observation["image"]
-            image = Image.fromarray(img_obs)  # type:ignore
+            image = Image.fromarray(img_obs)
             byte_io = io.BytesIO()
             image.save(byte_io, format="PNG")
             byte_io.seek(0)

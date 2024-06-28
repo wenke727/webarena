@@ -30,6 +30,8 @@ from .utils import (
     png_bytes_to_numpy,
 )
 
+import base64
+from .scripts import *
 
 @dataclass
 class PlaywrightScript:
@@ -121,6 +123,8 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
             self.observation_handler.get_observation_space()
         )
 
+        self.step_count = 0
+
     @beartype
     def setup(self, config_file: Path | None = None) -> None:
         self.context_manager = sync_playwright()
@@ -210,12 +214,15 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         if self.sleep_after_execution > 0:
             time.sleep(self.sleep_after_execution)
 
+        images = self.modify_page()
+
         observation = self._get_obs()
         observation_metadata = self._get_obs_metadata()
         info = {
             "page": DetachedPage(self.page.url, ""),
             "fail_error": "",
             "observation_metadata": observation_metadata,
+            "images": images,
         }
 
         return (observation, info)
@@ -251,6 +258,8 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         if self.sleep_after_execution > 0:
             time.sleep(self.sleep_after_execution)
 
+        images = self.modify_page()
+
         observation = self._get_obs()
         observation_metadata = self._get_obs_metadata()
 
@@ -258,7 +267,9 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
             "page": DetachedPage(self.page.url, self.page.content()),
             "fail_error": fail_error,
             "observation_metadata": observation_metadata,
+            "images": images,
         }
+
         msg = (
             observation,
             float(success),  # reward
@@ -267,3 +278,46 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
             info,
         )
         return msg
+
+    def modify_page(self):
+        self.page.wait_for_timeout(500)
+        try:
+            self.page.evaluate(remove_id_script)
+        except:
+            pass
+
+        img_bytes = self.page.screenshot(path=f"result/screenshot_raw.png")
+        raw_image = base64.b64encode(img_bytes).decode()
+
+        self.page.evaluate(mix_marker_script)
+        self.page.wait_for_timeout(100)
+
+        # get all clickable elements
+        start_id = 0
+        elem_items, start_id = self.page.evaluate(get_rect_script, {
+            "selector": ".possible-clickable-element",
+            "startIndex": start_id
+        })
+
+        # get ocr items
+        ocr_items = []
+        # ocr_items = page.evaluate(canva_handler_script)
+        # svg_items, _ = page.evaluate(get_rect_script, {"selector": "svg", "startIndex": -1})
+        # ocr_items = ocr_items + svg_items
+        # ocr_items, start_id = get_canva_images(ocr_items, img_bytes, start_id)
+
+        items = elem_items + ocr_items
+
+        # mark our own labels and get the images
+        items = self.page.evaluate(label_marker_script, items)
+        img_bytes = self.page.screenshot(path=f"result/{self.step_count:02d}_marked.png")
+        marked_image = base64.b64encode(img_bytes).decode()
+
+        self.page.evaluate(remove_label_mark_script)
+
+        self.step_count += 1
+
+        return {
+            "raw_image": raw_image,
+            "marked_image": marked_image,
+        }

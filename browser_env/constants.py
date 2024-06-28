@@ -92,7 +92,7 @@ SPECIAL_LOCATORS = (
 )
 
 ASCII_CHARSET = "".join(chr(x) for x in range(32, 128))
-FREQ_UNICODE_CHARSET = "".join(chr(x) for x in range(129, 1000))
+FREQ_UNICODE_CHARSET = "".join(chr(x) for x in range(129, 110000))
 UTTERANCE_MAX_LENGTH = 8192
 ATTRIBUTE_MAX_LENGTH = 256
 TEXT_MAX_LENGTH = 256

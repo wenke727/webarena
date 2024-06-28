@@ -5,12 +5,14 @@ load_dotenv(".env", verbose=True)
 import argparse
 import glob
 import json
+import logging
 import os
 import random
 import subprocess
 import tempfile
 import time
 from pathlib import Path
+from PIL import Image
 
 import openai
 
@@ -39,12 +41,27 @@ from evaluation_harness import evaluator_router
 from tqdm import tqdm
 from utils.logger_helper import configure_loguru_integration
 
-LOG_FOLDER = "result"
+LOG_FOLDER = "log_files"
 Path(LOG_FOLDER).mkdir(parents=True, exist_ok=True)
 LOG_FILE_NAME = f"{LOG_FOLDER}/log_{time.strftime('%Y%m%d%H%M%S', time.localtime())}_{random.randint(0, 10000)}.log"
 
-logger = configure_loguru_integration(
-    './result', 'webAgent.log', filter_packages=['httpcore', 'httpx', 'urllib3', "PIL"])
+logger = logging.getLogger("logger")
+logger.setLevel(logging.INFO)
+
+# console_handler = logging.StreamHandler()
+# console_handler.setLevel(logging.DEBUG)
+# logger.addHandler(console_handler)
+
+# file_handler = logging.FileHandler(LOG_FILE_NAME)
+# file_handler.setLevel(logging.DEBUG)
+# logger.addHandler(file_handler)
+
+# Set the log format
+# formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+# console_handler.setFormatter(formatter)
+# file_handler.setFormatter(formatter)
+
+logger = configure_loguru_integration('./result', 'webAgent.log', filter_packages=['httpcore', 'httpx', 'urllib3', "PIL"])
 
 def config() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -109,6 +126,7 @@ def config() -> argparse.Namespace:
     parser.add_argument("--context_length", type=int, default=0)
     parser.add_argument("--max_tokens", type=int, default=384)
     parser.add_argument("--stop_token", type=str, default=None)
+    parser.add_argument("--cuda", type=str, default='0')
     parser.add_argument(
         "--max_retry",
         type=int,
@@ -140,7 +158,7 @@ def config() -> argparse.Namespace:
     # check the whether the action space is compatible with the observation space
     if (
         args.action_set_tag == "id_accessibility_tree"
-        and args.observation_type != "accessibility_tree"
+        and args.observation_type not in ["accessibility_tree", "html"]
     ):
         raise ValueError(
             f"Action type {args.action_set_tag} is incompatible with the observation type {args.observation_type}"
@@ -233,9 +251,10 @@ def test(
 
     for config_file in tqdm(config_file_list):
         # try:
-            render_helper = RenderHelper(
-                config_file, args.result_dir, args.action_set_tag
-            )
+        # if True:
+            # render_helper = RenderHelper(
+            #     config_file, args.result_dir, args.action_set_tag
+            # )
 
             # get intent
             with open(config_file) as f:
@@ -264,6 +283,8 @@ def test(
                     config_file = f"{temp_dir}/{os.path.basename(config_file)}"
                     with open(config_file, "w") as f:
                         json.dump(_c, f)
+            # if "map" in _c["sites"]:
+            #     continue
 
             logger.info(f"[Config file]: {config_file}")
             logger.info(f"[Intent]: {intent}")
@@ -276,25 +297,30 @@ def test(
 
             meta_data = {"action_history": ["None"]}
 
+            trace = []
             while True:
+                # image_data = state_info["observation"]["image"]
+                # im = Image.fromarray(image_data)
+                # im.save('output/run.png')
+
                 early_stop_flag, stop_info = early_stop(
                     trajectory, max_steps, early_stop_thresholds
                 )
 
                 if early_stop_flag:
-                    action = create_stop_action(f"Early stop: {stop_info}") # FIXME
+                    action = create_stop_action() # f"Early stop: {stop_info}")
                 else:
-                    prompt = agent.prompt_constructor.construct(trajectory, intent, meta_data)
-
+                    prompt = agent.prompt_constructor.construct(
+                        trajectory, intent, meta_data
+                    )
                     try:
                         action = agent.next_action(
                             trajectory, intent, meta_data=meta_data
                         )
                     except ValueError as e:
                         # get the error message
-                        action = create_stop_action(f"ERROR: {str(e)}")
+                        action = create_stop_action() # f"ERROR: {str(e)}")
 
-                logger.warning(f"action: {action}")
                 trajectory.append(action)
 
                 action_str = get_action_description(
@@ -305,15 +331,15 @@ def test(
                     if isinstance(agent, PromptAgent)
                     else None,
                 )
-                render_helper.render(
-                    action, state_info, meta_data, args.render_screenshot
-                )
+                # render_helper.render(
+                #     action, state_info, meta_data, args.render_screenshot
+                # )
                 meta_data["action_history"].append(action_str)
 
-                # trace.append({
-                #     "source": prompt,
-                #     "target": action_str.split(' #HTML Segment')[0],
-                # })
+                trace.append({
+                    "source": prompt,
+                    "target": action_str.split(' #HTML Segment')[0],
+                })
 
                 if action["action_type"] == ActionTypes.STOP:
                     break
@@ -342,10 +368,17 @@ def test(
             else:
                 logger.info(f"[Result] (FAIL) {config_file}")
 
-            if args.save_trace_enabled:
-                env.save_trace(
-                    Path(args.result_dir) / "traces" / f"{task_id}.zip"
-                )
+            # if args.save_trace_enabled:
+            #     env.save_trace(
+            #         Path(args.result_dir) / "traces" / f"{task_id}.zip"
+            #     )
+            result = {
+                "id": task_id,
+                "score": score,
+                "trace": trace,
+            }
+            with open(Path(args.result_dir) / "traces" / f"trace_{task_id}.json", "w") as f:
+                json.dump(result, f, indent=4)
 
         # except openai.OpenAIError as e:
         #     logger.info(f"[OpenAI Error] {repr(e)}")
@@ -357,12 +390,12 @@ def test(
         #     with open(Path(args.result_dir) / "error.txt", "a") as f:
         #         f.write(f"[Config file]: {config_file}\n")
         #         f.write(f"[Unhandled Error] {repr(e)}\n")
-        #         f.write(traceback.format_exc())  # write stack trace to file
+        #         # f.write(traceback.format_exc())  # write stack trace to file
 
         # render_helper.close()
 
     env.close()
-    if len(scores):
+    if len(scores) > 0:
         logger.info(f"Average score: {sum(scores) / len(scores)}")
 
 
@@ -392,7 +425,7 @@ def prepare(args: argparse.Namespace) -> None:
 
 
 def get_unfinished(config_files: list[str], result_dir: str) -> list[str]:
-    result_files = glob.glob(f"{result_dir}/*.html")
+    result_files = glob.glob(f"{result_dir}/traces/*.json")
     task_ids = [
         os.path.basename(f).split(".")[0].split("_")[1] for f in result_files
     ]
@@ -420,6 +453,8 @@ if __name__ == "__main__":
     st_idx = args.test_start_idx
     ed_idx = args.test_end_idx
     for i in range(st_idx, ed_idx):
+        if i % args.sample != 0 or not os.path.exists(f"config_files/{i}.json"):
+            continue
         test_file_list.append(f"config_files/{i}.json")
     if "debug" not in args.result_dir:
         test_file_list = get_unfinished(test_file_list, args.result_dir)
