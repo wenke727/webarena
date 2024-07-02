@@ -95,7 +95,7 @@ def get_action_description(
 ) -> str:
     """Generate the text version of the predicted actions to store in action history for prompt use.
     May contain hint information to recover from the failures"""
-    
+
     match action_set_tag:
         case "id_html_tree":
             # old_op_prompt = "Website: %s; Thinking process: %s; Html segment: %s; Operation: %s; Result: %s"
@@ -103,7 +103,7 @@ def get_action_description(
             text_meta_data = observation_metadata["text"]
             node_info = text_meta_data["obs_nodes_info"]
             result = 'Operation Success'
-            
+
             if action["action_type"] in [
                 ActionTypes.CLICK,
                 ActionTypes.HOVER,
@@ -133,7 +133,7 @@ def get_action_description(
                         result = f'Operation invalid. The format was incorrect. Ensure that the action is wrapped inside a pair of # and seperate arguments within spaces as follows: #action# arg1 arg2 ....'
                 else:
                     action_str = action2str(action, action_set_tag, "")
-                    
+
             # action_str = op_prompt % (
             #     prompt_constructor.state["url"],
             #     prompt_constructor.state["intention"],
@@ -141,17 +141,18 @@ def get_action_description(
             #     action_str,
             #     result,
             # )
-            
+
             action_str = op_prompt % (
                 prompt_constructor.state["segment"],
                 action_str,
             )
+
         case "id_html_nasc_tree":
             op_prompt = "%s #HTML Segment: %s"
             text_meta_data = observation_metadata["text"]
             node_info = text_meta_data["obs_nodes_info"]
             result = 'Operation Success'
-            
+
             if action["action_type"] in [
                 ActionTypes.CLICK,
                 ActionTypes.HOVER,
@@ -181,12 +182,12 @@ def get_action_description(
                         result = f'Operation invalid. The format was incorrect. Ensure that the action is wrapped inside a pair of # and seperate arguments within spaces as follows: #action# arg1 arg2 ....'
                 else:
                     action_str = action2str(action, action_set_tag, "")
-                    
+
             action_str = op_prompt % (
                 action_str,
                 prompt_constructor.state["segment"],
             )
-            
+
         case "id_accessibility_tree":
             text_meta_data = observation_metadata["text"]
             if action["action_type"] in [

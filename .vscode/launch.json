@@ -10,12 +10,12 @@
         "request": "launch",
         "program": "${workspaceFolder}/run.py",
         "args": [
-          "--instruction_path", "agent/prompts/jsons/p_cot_id_actree_2s.json",
+          "--instruction_path", "agent/prompts/jsons/new_action_prompt.json",
           "--model", "gpt-3.5-turbo",
           "--mode", "completion",
           "--observation_type", "html",
           "--action_set_tag", "id_html_nasc_tree",
-          "--result_dir", "result",
+          "--result_dir", "debug",
           "--test_start_idx", "218",
           "--test_end_idx", "219"
         ],

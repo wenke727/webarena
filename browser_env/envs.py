@@ -286,7 +286,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         except:
             pass
 
-        img_bytes = self.page.screenshot(path=f"result/screenshot_raw.png")
+        img_bytes = self.page.screenshot(path=f"debug/screenshot_raw.png")
         raw_image = base64.b64encode(img_bytes).decode()
 
         self.page.evaluate(mix_marker_script)
@@ -310,7 +310,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
 
         # mark our own labels and get the images
         items = self.page.evaluate(label_marker_script, items)
-        img_bytes = self.page.screenshot(path=f"result/{self.step_count:02d}_marked.png")
+        img_bytes = self.page.screenshot(path=f"debug/{self.step_count:02d}_marked.png")
         marked_image = base64.b64encode(img_bytes).decode()
 
         self.page.evaluate(remove_label_mark_script)

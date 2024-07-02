@@ -2,19 +2,16 @@ from dotenv import load_dotenv
 load_dotenv(".env", verbose=True)
 
 """Script to run end-to-end evaluation on the benchmark"""
-import argparse
+import os
 import glob
 import json
-import logging
-import os
-import random
-import subprocess
-import tempfile
 import time
+import argparse
+import tempfile
+import subprocess
+from tqdm import tqdm
 from pathlib import Path
-from PIL import Image
-
-import openai
+from loguru import logger
 
 from agent import (
     Agent,
@@ -34,34 +31,11 @@ from browser_env import (
 from browser_env.actions import is_equivalent
 from browser_env.auto_login import get_site_comb_from_filepath
 from browser_env.helper_functions import (
-    RenderHelper,
     get_action_description,
 )
 from evaluation_harness import evaluator_router
-from tqdm import tqdm
 from utils.logger_helper import configure_loguru_integration
 
-LOG_FOLDER = "log_files"
-Path(LOG_FOLDER).mkdir(parents=True, exist_ok=True)
-LOG_FILE_NAME = f"{LOG_FOLDER}/log_{time.strftime('%Y%m%d%H%M%S', time.localtime())}_{random.randint(0, 10000)}.log"
-
-logger = logging.getLogger("logger")
-logger.setLevel(logging.INFO)
-
-# console_handler = logging.StreamHandler()
-# console_handler.setLevel(logging.DEBUG)
-# logger.addHandler(console_handler)
-
-# file_handler = logging.FileHandler(LOG_FILE_NAME)
-# file_handler.setLevel(logging.DEBUG)
-# logger.addHandler(file_handler)
-
-# Set the log format
-# formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-# console_handler.setFormatter(formatter)
-# file_handler.setFormatter(formatter)
-
-logger = configure_loguru_integration('./result', 'webAgent.log', filter_packages=['httpcore', 'httpx', 'urllib3', "PIL"])
 
 def config() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -223,34 +197,7 @@ def early_stop(
     return False, ""
 
 
-def test(
-    args: argparse.Namespace,
-    agent: Agent | PromptAgent | TeacherForcingAgent,
-    config_file_list: list[str],
-) -> None:
-    scores = []
-    max_steps = args.max_steps
-
-    early_stop_thresholds = {
-        "parsing_failure": args.parsing_failure_th,
-        "repeating_action": args.repeating_action_failure_th,
-    }
-
-    env = ScriptBrowserEnv(
-        headless=not args.render,
-        slow_mo=args.slow_mo,
-        observation_type=args.observation_type,
-        current_viewport_only=args.current_viewport_only,
-        viewport_size={
-            "width": args.viewport_width,
-            "height": args.viewport_height,
-        },
-        save_trace_enabled=args.save_trace_enabled,
-        sleep_after_execution=args.sleep_after_execution,
-    )
-
-    for config_file in tqdm(config_file_list):
-        # try:
+def process(env, args, config_file, scores, max_steps, early_stop_thresholds):
         # if True:
             # render_helper = RenderHelper(
             #     config_file, args.result_dir, args.action_set_tag
@@ -303,33 +250,26 @@ def test(
                 # im = Image.fromarray(image_data)
                 # im.save('output/run.png')
 
-                early_stop_flag, stop_info = early_stop(
-                    trajectory, max_steps, early_stop_thresholds
-                )
+                early_stop_flag, stop_info = early_stop(trajectory, max_steps, early_stop_thresholds)
 
                 if early_stop_flag:
-                    action = create_stop_action() # f"Early stop: {stop_info}")
+                    action = create_stop_action(f"Early stop: {stop_info}")
                 else:
-                    prompt = agent.prompt_constructor.construct(
-                        trajectory, intent, meta_data
-                    )
+                    prompt = agent.prompt_constructor.construct(trajectory, intent, meta_data)
                     try:
-                        action = agent.next_action(
-                            trajectory, intent, meta_data=meta_data
-                        )
+                        action = agent.next_action(trajectory, intent, meta_data=meta_data)
                     except ValueError as e:
                         # get the error message
-                        action = create_stop_action() # f"ERROR: {str(e)}")
+                        action = create_stop_action(f"ERROR: {str(e)}")
 
                 trajectory.append(action)
 
                 action_str = get_action_description(
                     action,
                     state_info["info"]["observation_metadata"],
-                    action_set_tag=args.action_set_tag,
-                    prompt_constructor=agent.prompt_constructor
-                    if isinstance(agent, PromptAgent)
-                    else None,
+                    action_set_tag = args.action_set_tag,
+                    prompt_constructor = agent.prompt_constructor
+                    if isinstance(agent, PromptAgent) else None,
                 )
                 # render_helper.render(
                 #     action, state_info, meta_data, args.render_screenshot
@@ -340,6 +280,9 @@ def test(
                     "source": prompt,
                     "target": action_str.split(' #HTML Segment')[0],
                 })
+
+                logger.info(f"action: {action}")
+                logger.warning(f"action_str: {action_str}")
 
                 if action["action_type"] == ActionTypes.STOP:
                     break
@@ -372,14 +315,41 @@ def test(
             #     env.save_trace(
             #         Path(args.result_dir) / "traces" / f"{task_id}.zip"
             #     )
-            result = {
-                "id": task_id,
-                "score": score,
-                "trace": trace,
-            }
+            result = {"id": task_id, "score": score, "trace": trace,}
             with open(Path(args.result_dir) / "traces" / f"trace_{task_id}.json", "w") as f:
                 json.dump(result, f, indent=4)
 
+            return
+
+def test(
+    args: argparse.Namespace,
+    agent: Agent | PromptAgent | TeacherForcingAgent,
+    config_file_list: list[str],
+) -> None:
+    scores = []
+    max_steps = args.max_steps
+
+    early_stop_thresholds = {
+        "parsing_failure": args.parsing_failure_th,
+        "repeating_action": args.repeating_action_failure_th,
+    }
+
+    env = ScriptBrowserEnv(
+        headless = not args.render,
+        slow_mo = args.slow_mo,
+        observation_type = args.observation_type,
+        current_viewport_only = args.current_viewport_only,
+        viewport_size = {
+            "width": args.viewport_width,
+            "height": args.viewport_height,
+        },
+        save_trace_enabled = args.save_trace_enabled,
+        sleep_after_execution = args.sleep_after_execution,
+    )
+
+    for config_file in config_file_list:
+        # try:
+            process(env, args, config_file, scores=scores, max_steps=max_steps, early_stop_thresholds=early_stop_thresholds)
         # except openai.OpenAIError as e:
         #     logger.info(f"[OpenAI Error] {repr(e)}")
         # except Exception as e:
@@ -419,9 +389,9 @@ def prepare(args: argparse.Namespace) -> None:
     if not (Path(result_dir) / "traces").exists():
         (Path(result_dir) / "traces").mkdir(parents=True)
 
-    # log the log file
-    with open(os.path.join(result_dir, "log_files.txt"), "a+") as f:
-        f.write(f"{LOG_FILE_NAME}\n")
+    # # log the log file
+    # with open(os.path.join(result_dir, "log_files.txt"), "a+") as f:
+    #     f.write(f"{LOG_FILE_NAME}\n")
 
 
 def get_unfinished(config_files: list[str], result_dir: str) -> list[str]:
@@ -441,13 +411,16 @@ def dump_config(args: argparse.Namespace) -> None:
     if not config_file.exists():
         with open(config_file, "w") as f:
             json.dump(vars(args), f, indent=4)
-            logger.info(f"Dump config to {config_file}")
+            logger.trace(f"Dump config to {config_file}")
 
 
 if __name__ == "__main__":
     args = config()
     args.sleep_after_execution = 2.0
     prepare(args)
+
+    logger = configure_loguru_integration(
+        args.result_dir, 'webAgent.log', filter_packages=['httpcore', 'httpx', 'urllib3', "PIL"])
 
     test_file_list = []
     st_idx = args.test_start_idx
@@ -462,7 +435,7 @@ if __name__ == "__main__":
     if len(test_file_list) == 0:
         logger.info("No task left to run")
     else:
-        logger.debug(f"Total {len(test_file_list)} tasks left")
+        logger.trace(f"Total {len(test_file_list)} tasks left")
         args.render = True
         args.render_screenshot = True
         args.save_trace_enabled = True

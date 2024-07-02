@@ -124,26 +124,21 @@ class PromptAgent(Agent):
         self.action_set_tag = tag
 
     @beartype
-    def next_action(
-        self, trajectory: Trajectory, intent: str, meta_data: dict[str, Any]
-    ) -> Action:
-        prompt = self.prompt_constructor.construct(
-            trajectory, intent, meta_data
-        )
+    def next_action(self, trajectory: Trajectory, intent: str, meta_data: dict[str, Any]) -> Action:
+        prompt = self.prompt_constructor.construct(trajectory, intent, meta_data)
         lm_config = self.lm_config
         n = 0
+
         while True:
             response = call_llm(lm_config, prompt)
-            logging.info(f"response: {response}")
-            force_prefix = self.prompt_constructor.instruction[
-                "meta_data"
-            ].get("force_prefix", "")
+            logging.warning(f"LLM response: \n{response}")
+
+            force_prefix = self.prompt_constructor.instruction["meta_data"].get("force_prefix", "")
             response = f"{force_prefix}{response}"
             n += 1
-            try:
-                parsed_response = self.prompt_constructor.extract_action(
-                    response
-                )
+            def helper():
+                parsed_response = self.prompt_constructor.extract_action(response)
+
                 if self.action_set_tag in ["id_html_tree", "id_html_nasc_tree", "id_accessibility_tree"]:
                     action = create_id_based_action(parsed_response)
                 elif self.action_set_tag == "playwright":
@@ -153,12 +148,17 @@ class PromptAgent(Agent):
                         f"Unknown action type {self.action_set_tag}"
                     )
                 action["raw_prediction"] = response
-                break
-            except ActionParsingError as e:
-                if n >= lm_config.gen_config["max_retry"]:
-                    action = create_none_action()
-                    action["raw_prediction"] = response
-                    break
+
+            helper()
+
+            # try:
+            #     helper()
+            #     break
+            # except ActionParsingError as e:
+            #     if n >= lm_config.gen_config["max_retry"]:
+            #         action = create_none_action()
+            #         action["raw_prediction"] = response
+            #         break
 
         return action
 
