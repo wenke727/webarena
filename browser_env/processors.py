@@ -31,7 +31,7 @@ from .html_tools import HtmlParser, basic_attrs, print_html_object
 
 IN_VIEWPORT_RATIO_THRESHOLD = 0.6
 logger = logging.getLogger("logger")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 class ObservationProcessor:
     def process(self, page: Page, client: CDPSession) -> Observation:
@@ -794,6 +794,8 @@ class TextObervationProcessor(ObservationProcessor):
             )
 
         self.browser_config = browser_info["config"]
+
+        logger.debug(f"HTML: {content}")
         # content = f"{tab_title_str}\n\n{content}"
         return content
 

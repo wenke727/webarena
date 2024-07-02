@@ -10,7 +10,6 @@ from typing import Any
 
 import aiolimiter
 import openai
-# import openai
 from tqdm.asyncio import tqdm_asyncio
 
 from .openai_hepler import initialize_ai_client
@@ -140,23 +139,9 @@ def generate_from_openai_completion(
     top_p: float,
     context_length: int = None,
     stop_token: str | None = None,
+    model='gpt-4o'
 ) -> str:
-    # if "OPENAI_API_KEY" not in os.environ:
-    #     raise ValueError(
-    #         "OPENAI_API_KEY environment variable must be set when using OpenAI API."
-    #     )
-    # openai.api_key = os.environ["OPENAI_API_KEY"]
-    # openai.organization = os.environ.get("OPENAI_ORGANIZATION", "")
-    # response = openai.Completion.create(  # type: ignore
-    #     prompt=prompt,
-    #     engine=engine,
-    #     temperature=temperature,
-    #     max_tokens=max_tokens,
-    #     top_p=top_p,
-    #     stop=[stop_token],
-    # )
-    # answer: str = response["choices"][0]["text"]
-    client = initialize_ai_client() # model='gpt-4o'
+    client = initialize_ai_client(model = model)
 
     response = client.invoke(
         [prompt],
@@ -264,15 +249,6 @@ def generate_from_openai_chat_completion(
     openai.api_key = os.environ["OPENAI_API_KEY"]
     openai.organization = os.environ.get("OPENAI_ORGANIZATION", "")
 
-    # response = openai.ChatCompletion.create(  # type: ignore
-    #     model=model,
-    #     messages=messages,
-    #     temperature=temperature,
-    #     max_tokens=max_tokens,
-    #     top_p=top_p,
-    #     stop=[stop_token] if stop_token else None,
-    # )
-    # answer: str = response["choices"][0]["message"]["content"]
     client = initialize_ai_client(model=model) # model='gpt-4o'
 
     response = client.invoke(
@@ -306,46 +282,3 @@ def fake_generate_from_openai_chat_completion(
     openai.organization = os.environ.get("OPENAI_ORGANIZATION", "")
     answer = "Let's think step-by-step. This page shows a list of links and buttons. There is a search box with the label 'Search query'. I will click on the search box to type the query. So the action I will perform is \"click [60]\"."
     return answer
-
-
-# from langchain_openai import OpenAI
-# from langchain.schema import Message, ChatCompletionRequest
-
-# @retry_with_exponential_backoff
-# def agenerate_from_openai_chat_completion(
-#     messages: list[dict[str, str]],
-#     model: str,
-#     temperature: float,
-#     max_tokens: int,
-#     top_p: float,
-#     stop_token: str | None = None,
-# ) -> str:
-#     if "OPENAI_API_KEY" not in os.environ:
-#         raise ValueError(
-#             "OPENAI_API_KEY environment variable must be set when using OpenAI API."
-#         )
-
-#     # 配置OpenAI客户端
-#     openai_client = OpenAI(
-#         api_key=os.environ["OPENAI_API_KEY"],
-#         organization=os.environ.get("OPENAI_ORGANIZATION", "")
-#     )
-
-#     # 创建Message对象列表
-#     langchain_messages = [Message(role=msg["role"], content=msg["content"]) for msg in messages]
-
-#     # 创建聊天完成请求
-#     chat_request = ChatCompletionRequest(
-#         model=model,
-#         messages=langchain_messages,
-#         temperature=temperature,
-#         max_tokens=max_tokens,
-#         top_p=top_p,
-#         stop=[stop_token] if stop_token else None
-#     )
-
-#     # 获取响应
-#     response = openai_client.chat_completion(chat_request)
-#     answer = response.choices[0].content  # 获取回答
-
-#     return answer

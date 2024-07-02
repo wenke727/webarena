@@ -197,7 +197,7 @@ def early_stop(
     return False, ""
 
 
-def process(env, args, config_file, scores, max_steps, early_stop_thresholds):
+def process(env, agent, args, config_file, scores, max_steps, early_stop_thresholds):
         # if True:
             # render_helper = RenderHelper(
             #     config_file, args.result_dir, args.action_set_tag
@@ -349,7 +349,7 @@ def test(
 
     for config_file in config_file_list:
         # try:
-            process(env, args, config_file, scores=scores, max_steps=max_steps, early_stop_thresholds=early_stop_thresholds)
+            process(env, agent, args, config_file, scores=scores, max_steps=max_steps, early_stop_thresholds=early_stop_thresholds)
         # except openai.OpenAIError as e:
         #     logger.info(f"[OpenAI Error] {repr(e)}")
         # except Exception as e:
@@ -393,7 +393,6 @@ def prepare(args: argparse.Namespace) -> None:
     # with open(os.path.join(result_dir, "log_files.txt"), "a+") as f:
     #     f.write(f"{LOG_FILE_NAME}\n")
 
-
 def get_unfinished(config_files: list[str], result_dir: str) -> list[str]:
     result_files = glob.glob(f"{result_dir}/traces/*.json")
     task_ids = [
@@ -420,7 +419,7 @@ if __name__ == "__main__":
     prepare(args)
 
     logger = configure_loguru_integration(
-        args.result_dir, 'webAgent.log', filter_packages=['httpcore', 'httpx', 'urllib3', "PIL"])
+        args.result_dir, 'webAgent.log', filter_packages=['httpcore', 'httpx', 'urllib3', 'PIL', 'openai'])
 
     test_file_list = []
     st_idx = args.test_start_idx

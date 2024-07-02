@@ -1,13 +1,13 @@
 # websites domain
 import os
 
-REDDIT = os.environ.get("REDDIT", "")
-SHOPPING = os.environ.get("SHOPPING", "")
-SHOPPING_ADMIN = os.environ.get("SHOPPING_ADMIN", "")
-GITLAB = os.environ.get("GITLAB", "")
-WIKIPEDIA = os.environ.get("WIKIPEDIA", "")
-MAP = os.environ.get("MAP", "")
-HOMEPAGE = os.environ.get("HOMEPAGE", "")
+REDDIT = os.environ.get("REDDIT", "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999")
+SHOPPING = os.environ.get("SHOPPING", "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770")
+SHOPPING_ADMIN = os.environ.get("SHOPPING_ADMIN", "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin")
+GITLAB = os.environ.get("GITLAB", "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023")
+WIKIPEDIA = os.environ.get("WIKIPEDIA", "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8888/wikipedia_en_all_maxi_2022-05/A/User:The_other_Kiwix_guy/Landing")
+MAP = os.environ.get("MAP", "https://www.openstreetmap.org/")
+HOMEPAGE = os.environ.get("HOMEPAGE", "PASS")
 
 assert (
     REDDIT

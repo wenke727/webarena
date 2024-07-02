@@ -630,6 +630,13 @@ class NewASPromptConstructor(PromptConstructor):
     def _extract_action(self, response: str) -> str:
         # find the first occurence of action
         # self.state["intention"] = self._extract_intention(response)
+        if "````python" in response:
+            response = response.replace("````python", '')
+            if response.endswith('```'):
+                response = response[:-3]
+        if "span" in response:
+            response = response.replace("span[", '')
+            response = response.replace("]", '')
 
         for regex, act in zip(self.operation, self.translate):
             match = re.search(regex, response)

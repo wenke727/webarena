@@ -1,14 +1,4 @@
-prompt = {
-    "intro": "",
-	"examples": [],
-	"template": """<html> {html} </html>
-
-You are a helpful assistant that can assist with web navigation tasks.
-You are given a simplified html webpage and a task description.
-Your goal is to complete the task. You can use the provided functions below to interact with the current webpage.
-Notes: 无需登陆账户
-
-#Provided functions:
+functons_desc = """
 def click(element_id: str) -> None:
     \"\"\"
     Click on the element with the specified id.
@@ -94,17 +84,41 @@ def finish(answer: Optional[str]) -> None:
     Args:
        answer: The answer to the task.
  \"\"\"
+"""
 
-#Previous commands: {previous_action}
+prompt = {
+    "intro": "",
+	"examples": [],
+	"template": """<html> {html} </html>
 
-#Window tabs: {tabs}
+You are a helpful assistant that can assist with web navigation tasks.
+You are given a simplified html webpage and a task description.
+Your goal is to complete the task. You can use the provided functions below to interact with the current webpage.
+Notes: 无需登陆账户
 
-#Current viewport (pages): {position}
+---
+Provided functions:""" + functons_desc + """"
 
-#Task: {objective}
+---
+Previous commands: {previous_action}
 
-You should output one command to interact to the currrent webpage.
+---
+Window tabs: {tabs}
+
+---
+Current viewport (pages): {position}
+
+---
+Task: {objective}
+
+You should output one commander to interact to the current webpage, please double check the 'element_id' params in commnadwe, is usually not include `commander` or `[]`.
 You should add a brief comment to your command to explain your reasoning and thinking process.
+
+---
+The output format should be:
+commander
+# comment
+
 """,
    "finale": "",
 	"meta_data": {

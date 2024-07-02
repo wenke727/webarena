@@ -2,7 +2,6 @@ import argparse
 import json
 from typing import Any
 
-import tiktoken
 from beartype import beartype
 
 from agent.prompts import *
@@ -14,14 +13,7 @@ from browser_env.actions import (
     create_none_action,
     create_playwright_action,
 )
-from browser_env.utils import Observation, StateInfo
-from llms import (
-    call_llm,
-    generate_from_huggingface_completion,
-    generate_from_openai_chat_completion,
-    generate_from_openai_completion,
-    lm_config,
-)
+from llms import call_llm, lm_config
 from llms.tokenizers import Tokenizer
 import logging
 logger = logging.getLogger("logger")
@@ -131,11 +123,13 @@ class PromptAgent(Agent):
 
         while True:
             response = call_llm(lm_config, prompt)
-            logging.warning(f"LLM response: \n{response}")
+            tmp = response.replace("\n", "; ")
+            logging.debug(tmp)
 
             force_prefix = self.prompt_constructor.instruction["meta_data"].get("force_prefix", "")
             response = f"{force_prefix}{response}"
             n += 1
+
             def helper():
                 parsed_response = self.prompt_constructor.extract_action(response)
 
