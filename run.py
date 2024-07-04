@@ -321,11 +321,7 @@ def process(env, agent, args, config_file, scores, max_steps, early_stop_thresho
 
             return
 
-def test(
-    args: argparse.Namespace,
-    agent: Agent | PromptAgent | TeacherForcingAgent,
-    config_file_list: list[str],
-) -> None:
+def test(args: argparse.Namespace, agent: Agent | PromptAgent | TeacherForcingAgent, config_file_list: list[str]) -> None:
     scores = []
     max_steps = args.max_steps
 
@@ -345,6 +341,7 @@ def test(
         },
         save_trace_enabled = args.save_trace_enabled,
         sleep_after_execution = args.sleep_after_execution,
+        cache_folder = args.result_dir
     )
 
     for config_file in config_file_list:
@@ -379,7 +376,7 @@ def prepare(args: argparse.Namespace) -> None:
     result_dir = args.result_dir
     if not result_dir:
         result_dir = (
-            f"cache/results_{time.strftime('%Y%m%d%H%M%S', time.localtime())}"
+            f"cache/results_{time.strftime('%Y%m%d-%H%M%S', time.localtime())}"
         )
     if not Path(result_dir).exists():
         Path(result_dir).mkdir(parents=True, exist_ok=True)
@@ -419,7 +416,7 @@ if __name__ == "__main__":
     prepare(args)
 
     logger = configure_loguru_integration(
-        args.result_dir, 'webAgent.log', filter_packages=['httpcore', 'httpx', 'urllib3', 'PIL', 'openai'])
+        args.result_dir, 'webAgent.log', filter_packages=['httpcore', 'httpx', 'urllib3', 'PIL', 'openai'], mode='w')
 
     test_file_list = []
     st_idx = args.test_start_idx

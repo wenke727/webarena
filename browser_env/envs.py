@@ -1,6 +1,7 @@
 import json
 import re
 import time
+from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,6 +87,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         viewport_size: ViewportSize = {"width": 1280, "height": 720},
         save_trace_enabled: bool = False,
         sleep_after_execution: float = 0.0,
+        cache_folder = None,
     ):
         # TODO: make Space[Action] = ActionSpace
         self.action_space = get_action_space()  # type: ignore[assignment]
@@ -124,6 +126,11 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         )
 
         self.step_count = 0
+        if cache_folder is None:
+            self.cache_folder = Path('./cache/pages')
+        else:
+            self.cache_folder = Path(cache_folder) / 'pages'
+        self.cache_folder.mkdir(parents=True, exist_ok=True)
 
     @beartype
     def setup(self, config_file: Path | None = None) -> None:
@@ -176,12 +183,24 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         return page.client  # type: ignore
 
     def _get_obs(self) -> dict[str, Observation]:
-        obs = self.observation_handler.get_observation(self.page, self.get_page_client(self.page))
+        obs = self.observation_handler.get_observation(
+            self.page, self.get_page_client(self.page)) # class: playwright.syc_api._generated.Page
 
         return obs
 
     def _get_obs_metadata(self) -> dict[str, ObservationMetadata]:
         metadata = self.observation_handler.get_observation_metadata()
+        text_metadata = metadata['text']
+
+        text_metadata['obs_nodes_info']
+        text_metadata['position_info']
+        text_metadata['dom_info']['dom_tree']
+        text_metadata['tab_title']
+        text_metadata['html_parser']
+
+        with open(self.cache_folder / f'{self.step_count:02d}.html', 'w') as f:
+            f.write(text_metadata['dom_info']['raw_html'])
+
         return metadata
 
     @beartype
@@ -234,9 +253,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         if self.reset_finished:
             self.context_manager.__exit__()
 
-    def step(
-        self, action: Action
-    ) -> tuple[dict[str, Observation], float, bool, bool, dict[str, Any]]:
+    def step(self, action: Action) -> tuple[dict[str, Observation], float, bool, bool, dict[str, Any]]:
         if not self.reset_finished:
             raise RuntimeError("Call reset first before calling step.")
 
@@ -285,7 +302,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         except:
             pass
 
-        img_bytes = self.page.screenshot(path=f"debug/screenshot_raw.png")
+        img_bytes = self.page.screenshot(path = self.cache_folder / f"raw/screenshot_raw_{self.step_count:02d}.png")
         raw_image = base64.b64encode(img_bytes).decode()
 
         self.page.evaluate(mix_marker_script)
@@ -309,7 +326,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
 
         # mark our own labels and get the images
         items = self.page.evaluate(label_marker_script, items)
-        img_bytes = self.page.screenshot(path=f"debug/{self.step_count:02d}_marked.png")
+        img_bytes = self.page.screenshot(path = self.cache_folder / f"screenshot_marked_{self.step_count:02d}.png")
         marked_image = base64.b64encode(img_bytes).decode()
 
         self.page.evaluate(remove_label_mark_script)

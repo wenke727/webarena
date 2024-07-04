@@ -63,11 +63,17 @@ class TextObervationProcessor(ObservationProcessor):
             create_empty_metadata()
         )  # use the store meta data of this observation type
 
-    def fetch_browser_info(
-        self,
-        page: Page,
-        client: CDPSession,
-    ) -> BrowserInfo:
+    def fetch_browser_info(self, page: Page, client: CDPSession,) -> BrowserInfo:
+        """
+        Fetch and calibrate browser information and the DOM tree.
+
+        Args:
+            page (Page): The page object from a browser.
+            client (CDPSession): The CDP session for sending commands to the browser.
+
+        Returns:
+            BrowserInfo: A dictionary containing the DOM tree and browser configuration.
+        """
         # extract domtree
         tree = client.send(
             "DOMSnapshot.captureSnapshot",
@@ -176,13 +182,19 @@ class TextObervationProcessor(ObservationProcessor):
         ratio = overlap_width * overlap_height / width * height
         return ratio
 
-    def fetch_page_html(
-        self,
-        info: BrowserInfo,
-        page: Page,
-        client: CDPSession,
-        current_viewport_only: bool,
-    ) -> DOMTree:
+    def fetch_page_html(self, info: BrowserInfo, page: Page, client: CDPSession, current_viewport_only: bool,) -> DOMTree:
+        """
+        Fetch and structure the HTML of the page into a navigable DOM tree.
+
+        Args:
+            info (BrowserInfo): Information about the browser including DOM tree and config.
+            page (Page): The page object from the browser.
+            client (CDPSession): The CDP session for sending commands to the browser.
+            current_viewport_only (bool): Flag to filter nodes outside the current viewport.
+
+        Returns:
+            DOMTree: A structured DOM tree of the page.
+        """
         # adopted from [natbot](https://github.com/nat/natbot)
         tree = info["DOMTree"]
         config = info["config"]
@@ -198,7 +210,8 @@ class TextObervationProcessor(ObservationProcessor):
         # make a dom tree that is easier to navigate
         dom_tree: DOMTree = []
         graph = defaultdict(list)
-        print(nodes.keys())
+        logger.debug(f"nodes.keys: {list(nodes.keys())}")
+
         for node_idx in range(len(nodes["nodeName"])):
             cur_node: DOMNode = {
                 "nodeId": "",
@@ -280,13 +293,13 @@ class TextObervationProcessor(ObservationProcessor):
                 cur_node["union_bound"] = bound
 
             dom_tree.append(cur_node)
-        print('[build]', time.time() - stt)
+        # logger.debug(f'[build]: {time.time() - stt:.3f}s')
 
         stt = time.time()
         # add parent children index to the node
         for parent_id, child_ids in graph.items():
             dom_tree[int(parent_id)]["childIds"] = child_ids
-        print('[graph]', time.time() - stt)
+        # logger.debug(f'[graph]: {time.time() - stt:.3f}s')
 
         # with open('output/dom_tree.json', 'w') as f:
         #     f.write(json.dumps(dom_tree, ensure_ascii=False))
@@ -352,7 +365,7 @@ class TextObervationProcessor(ObservationProcessor):
                 if node.get("parentId", "-1") != "[REMOVED]"
             ]
 
-        print('[filter]', time.time() - stt)
+        # logger.debug(f'[filter]: {time.time() - stt:.3f}s')
         return dom_tree
 
     @staticmethod
@@ -416,7 +429,7 @@ class TextObervationProcessor(ObservationProcessor):
 
         # with open('output/raw.html', 'w') as f:
         #     f.write(html)
-        print(labeled_elems)
+        logger.debug(f"labeled_elems: {labeled_elems}")
 
         args = {
             'use_position': False,
@@ -434,7 +447,7 @@ class TextObervationProcessor(ObservationProcessor):
         # logging.debug(f"page html:\n{print_html_object(page_html)}")
 
         it, pt = packet.get('init_time', 0), packet.get('parse_time', 0)
-        print(f'[Time] {it:.3f} {pt:.3f}')
+        # logger.debug(f'[Time] {it:.3f} {pt:.3f}')
 
         return html, page_html, obs_nodes_info, hp
 
@@ -737,26 +750,35 @@ class TextObervationProcessor(ObservationProcessor):
 
 
         try:
+            # TODO
             browser_info = self.fetch_browser_info(page, client)
         except Exception:
             page.wait_for_load_state("load", timeout=500)
             browser_info = self.fetch_browser_info(page, client)
+        # logger.info(f"browser_info: \n{browser_info}") # TODO
 
         if self.observation_type == "html":
             import time
             stt = time.time()
+            # TODO
             dom_tree = self.fetch_page_html(
                 browser_info,
                 page,
                 client,
-                current_viewport_only=self.current_viewport_only,
+                current_viewport_only = self.current_viewport_only,
             )
+            logger.info(f"dom_tree: {len(str(dom_tree))}")
+            # logger.debug(f'[fetch]: {time.time() - stt:.3f}s')
 
-            print('[fetch]', time.time() - stt)
-
+            # TODO
             stt = time.time()
             raw_html, content, obs_nodes_info, hp = self.parse_my_html(dom_tree)
-            print('[parse]', time.time() - stt)
+            # logger.info(f"raw_html: {len(raw_html)}")
+            logger.info(f"simplified_html: {len(content)}")
+            logger.info(f"obs_nodes_info: {len(obs_nodes_info)}")
+            logger.info(f"hp: {hp}")
+
+            # logger.debug(f'[parse]: {time.time() - stt:.3f}s')
 
             window_height = page.evaluate("window.innerHeight")
             page_height = page.evaluate('document.documentElement.scrollHeight') / window_height
@@ -828,6 +850,8 @@ class ImageObservationProcessor(ObservationProcessor):
 
 class ObservationHandler:
     """Main entry point to access all observation processor"""
+            # with open('output/raw.html', 'w') as f:
+            #     f.write(html)
 
     def __init__(
         self,
