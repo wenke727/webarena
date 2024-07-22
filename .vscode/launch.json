@@ -16,8 +16,12 @@
           "--observation_type", "html",
           "--action_set_tag", "id_html_nasc_tree",
           "--result_dir", "debug",
-          "--test_start_idx", "218",
-          "--test_end_idx", "219"
+          // "--test_start_idx", "218",
+          // "--test_end_idx", "219"
+          "--test_start_idx", "812",
+          "--test_end_idx", "813",
+          "--viewport_height", "900",
+          "--viewport_width", "400"
         ],
         "console": "integratedTerminal"
       }

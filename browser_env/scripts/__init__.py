@@ -5,7 +5,7 @@ rootdir = Path(__file__).parent
 # marker, gpt-4v-act style
 with open(os.path.join(rootdir, 'local_marker.js'), 'r') as f:
     local_marker_script = f.read()
-    
+
 with open(os.path.join(rootdir, 'mix_marker.js'), 'r') as f:
     mix_marker_script = f.read()
 
@@ -19,7 +19,7 @@ with open(os.path.join(rootdir, 'canva_handler.js'), 'r') as f:
 # draw label on page
 with open(os.path.join(rootdir, 'label_marker.js'), 'r') as f:
     label_marker_script = f.read()
-    
+
 # get text from page
 with open(os.path.join(rootdir, 'get_text.js'), 'r') as f:
     get_text_script = f.read()

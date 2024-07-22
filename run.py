@@ -208,8 +208,9 @@ def process(env, agent, args, config_file, scores, max_steps, early_stop_thresho
                 _c = json.load(f)
                 intent = _c["intent"]
                 task_id = _c["task_id"]
-                # automatically login
-                if _c["storage_state"]:
+
+                # FIXME: automatically login
+                if _c["storage_state"] and False:
                     cookie_file_name = os.path.basename(_c["storage_state"])
                     comb = get_site_comb_from_filepath(cookie_file_name)
                     temp_dir = tempfile.mkdtemp()

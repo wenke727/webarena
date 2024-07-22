@@ -1,6 +1,7 @@
 import json
 import re
 import time
+import logging
 from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass
@@ -32,7 +33,16 @@ from .utils import (
 )
 
 import base64
-from .scripts import *
+# from .scripts import *
+from .scripts import (
+    remove_id_script,
+    mix_marker_script,
+    get_rect_script,
+    get_rect_script,
+    label_marker_script,
+    remove_label_mark_script
+)
+logger = logging.getLogger("logger")
 
 @dataclass
 class PlaywrightScript:
@@ -192,14 +202,18 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         metadata = self.observation_handler.get_observation_metadata()
         text_metadata = metadata['text']
 
-        text_metadata['obs_nodes_info']
-        text_metadata['position_info']
-        text_metadata['dom_info']['dom_tree']
-        text_metadata['tab_title']
-        text_metadata['html_parser']
+        logger.debug(f"text_metadata['position_info']: {text_metadata['position_info']}")
+        logger.debug(f"text_metadata['tab_title']: {text_metadata['tab_title']}")
+        # text_metadata['html_parser']
 
-        with open(self.cache_folder / f'{self.step_count:02d}.html', 'w') as f:
+        with open(self.cache_folder / f'{self.step_count:02d}_raw_html.html', 'w', encoding='utf-8') as f:
             f.write(text_metadata['dom_info']['raw_html'])
+
+        with open(self.cache_folder / f'{self.step_count:02d}_dom_tree.log', 'w', encoding='utf-8') as f:
+            f.write(str(text_metadata['dom_info']['dom_tree']))
+
+        with open(self.cache_folder / f'{self.step_count:02d}_obs_nodes_info.log', 'w', encoding='utf-8') as f:
+            f.write(str(text_metadata['obs_nodes_info']))
 
         return metadata
 
@@ -295,18 +309,23 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         )
         return msg
 
-    def modify_page(self):
+    def modify_page(self, html_snapshot=True):
         self.page.wait_for_timeout(500)
         try:
             self.page.evaluate(remove_id_script)
         except:
             pass
 
-        img_bytes = self.page.screenshot(path = self.cache_folder / f"raw/screenshot_raw_{self.step_count:02d}.png")
-        raw_image = base64.b64encode(img_bytes).decode()
+        if html_snapshot:
+            self.save_html(self.cache_folder / f"{self.step_count:02d}_observ_step1.html")
+
+        raw_image = self.get_screenshot(
+            self.cache_folder / f"{self.step_count:02d}_screenshot_raw.png")
 
         self.page.evaluate(mix_marker_script)
         self.page.wait_for_timeout(100)
+        if html_snapshot:
+            self.save_html(self.cache_folder / f"{self.step_count:02d}_observ_step2.html")
 
         # get all clickable elements
         start_id = 0
@@ -314,6 +333,8 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
             "selector": ".possible-clickable-element",
             "startIndex": start_id
         })
+        if html_snapshot:
+            self.save_html(self.cache_folder / f"{self.step_count:02d}_observ_step3.html")
 
         # get ocr items
         ocr_items = []
@@ -326,10 +347,15 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
 
         # mark our own labels and get the images
         items = self.page.evaluate(label_marker_script, items)
-        img_bytes = self.page.screenshot(path = self.cache_folder / f"screenshot_marked_{self.step_count:02d}.png")
-        marked_image = base64.b64encode(img_bytes).decode()
+        if html_snapshot:
+            self.save_html(self.cache_folder / f"{self.step_count:02d}_observ_step4.html")
+
+        marked_image = self.get_screenshot(
+            self.cache_folder / f"{self.step_count:02d}_screenshot_marked.png")
 
         self.page.evaluate(remove_label_mark_script)
+        if html_snapshot:
+            self.save_html(self.cache_folder / f"{self.step_count:02d}_observ_step5.html")
 
         self.step_count += 1
 
@@ -337,3 +363,19 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
             "raw_image": raw_image,
             "marked_image": marked_image,
         }
+
+    def get_screenshot(self, fn):
+        img_bytes = self.page.screenshot(path = fn)
+
+        raw_image = base64.b64encode(img_bytes).decode()
+
+        return raw_image
+
+    def save_html(self, fn):
+        from bs4 import BeautifulSoup
+
+        html = self.page.content()
+        soup = BeautifulSoup(html, 'html.parser')
+        pretty_html = soup.prettify()
+        with open(fn, 'w', encoding='utf-8') as f:
+            f.write(pretty_html)

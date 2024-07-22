@@ -1,0 +1,30 @@
+{
+    "sites": [
+     "taobao"
+    ],
+    "task_id":  812,
+    "require_login":  true,
+    "storage_state":  null,
+    "start_url":  "https://main.m.taobao.com/index.html",
+    "geolocation":  null,
+    "intent_template":  "",
+    "instantiation_dict": {
+     "location":  "CMU, Pittsburgh",
+     "n":  "5"
+    },
+    "intent":  "为我筛选出价格在 100~300 元，同时包邮的女式钱包产品",
+    "require_reset":  false,
+    "eval": {
+     "eval_types": [
+      "string_match"
+     ],
+     "reference_answers": {
+      "fuzzy_match":  "N/A"
+     },
+     "reference_url":  "",
+     "program_html": [],
+     "string_note":  "There is no hotel near CMU that is within 5 minutes walking distance",
+     "reference_answer_raw_annotation": "N/A"
+    },
+    "intent_template_id":  41
+   }
